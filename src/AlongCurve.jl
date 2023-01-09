@@ -43,10 +43,12 @@ function dist(ij1::IJ, ij2::IJ, M::Float64)
 	return h > 1.5 ? M : h
 end
 
-function subsets(n::Int)
+function subsets(n::Int, d::Matrix{Float64})
 	a = Vector{Int}[Int[]]
 	for i = 1:n
-		append!(a, vcat.(a, i))
+		for s = a
+			all(isfinite.(d[s, i])) && push!(a, vcat(s, i))
+		end
 	end
 	return filter(s -> 2 <= length(s) <= n-1, a)
 end
@@ -57,10 +59,11 @@ function hamilton(d::Matrix{Float64}; optimizer=GLPK)
 	@variable(model, x[1:n, 1:n], binary=true)
 	@constraint(model, sum(x, dims=1) .== 1)
 	@constraint(model, sum(x, dims=2) .== 1)
-	for s = subsets(n)
+	for s = subsets(n, d)
 		@constraint(model, sum(x[s, s]) <= length(s) - 1)
 	end
-	@objective(model, Min, sum(x .* d))
+	dbound = min.(d, n + 3.0)
+	@objective(model, Min, sum(x .* dbound))
 	optimize!(model)
 	next = only.(findall.(eachcol(Bool.(value.(x)))))
 	i = 1
@@ -84,7 +87,6 @@ function order(matrix::BitMatrix; optimizer=GLPK)
 	nt = nv + ns * 2
 	v = copyto!(Vector{Int}(undef, nt), v0)
 	d = Matrix{Float64}(undef, nt, nt)
-	L = n + 3.0
 	insegments = zeros(Int, n)
 	for k = 1 : ns
 		segment = segments[k]
@@ -92,9 +94,9 @@ function order(matrix::BitMatrix; optimizer=GLPK)
 		insegments[a] = insegments[b] = k
 	end
 	for i = 1 : nt
-		d[i, i] = L
+		d[i, i] = Inf
 		for j = i+1 : nt
-			d[i, j] = d[j, i] = dist(pixels[v[i]], pixels[v[j]], L)
+			d[i, j] = d[j, i] = dist(pixels[v[i]], pixels[v[j]], Inf)
 		end
 	end
 	for i = nv+1 : 2 : nt
